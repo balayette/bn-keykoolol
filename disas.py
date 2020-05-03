@@ -1,7 +1,9 @@
 from binaryninja.function import InstructionInfo, InstructionTextToken
 from binaryninja.enums import InstructionTextTokenType, BranchType
 from binaryninja.architecture import Architecture
-from binaryninja.lowlevelil import LLIL_TEMP
+from binaryninja.lowlevelil import LLIL_TEMP, ILIntrinsic
+from binaryninja.log import *
+
 
 def tI(x):
     return InstructionTextToken(InstructionTextTokenType.InstructionToken, x)
@@ -237,11 +239,15 @@ def h_aes(bs, eip):
     return [
         tI("aes"),
         tT(" "),
-        tM("byte ["),
+        tM("xmmword ["),
+        tR(f"r{dst}"),
+        tE("]"),
+        tS(","),
+        tM("xmmword ["),
         tR(f"r{val_src}"),
         tE("]"),
         tS(","),
-        tM("byte ["),
+        tM("xmmword ["),
         tR(f"r{key_src}"),
         tE("]"),
     ]
@@ -288,9 +294,10 @@ handlers = {
 
 def disas(data, addr):
     op = int.from_bytes(data, byteorder="little")
-    h = handlers[(op >> 0x18) & 0xFF]
-    if h is None:
+    opc = (op >> 0x18) & 0xff
+    if opc not in handlers:
         return [tT("UNKNOWN INSTRUCTION")], 4
+    h = handlers[opc]
     return h(op, addr), 4
 
 
@@ -616,6 +623,30 @@ def il_cmp_r(bs, addr, il):
     return il.set_reg(4, "rc", il.sub(4, il.reg(4, f"r{l}"), il.reg(4, f"r{r}")))
 
 
+def il_aes(bs, addr, il):
+    val_src = (bs >> 0x10) & 0xF  # xmm0 = mem1[r[val_src]] (16 bytes)
+    key_src = (bs >> 0xC) & 0xF  # xmm1 = mem1[r[key_src]] (16 bytes)
+    # xmm0 = aes(val=xmm0, key=xmm1)
+    dst = (bs >> 0x14) & 0xF  # mem16[r[dst]] = xmm0
+
+    enct = LLIL_TEMP(0)
+    key = LLIL_TEMP(1)
+    val = LLIL_TEMP(2)
+
+    loadk = il.set_reg(16, key, il.load(16, il.reg(4, f"r{key_src}")))
+    loadv = il.set_reg(16, val, il.load(16, il.reg(4, f"r{val_src}")))
+
+    store = il.store(
+        16,
+        il.reg(4, f"r{dst}"),
+        il.intrinsic([il.reg(16, enct)], "__aes", [il.reg(16, key), il.reg(16, val)]),
+    )
+
+    il.append(loadk)
+    il.append(loadv)
+    return store
+
+
 il_handlers = {
     0x0: il_ass_r,
     0x1: il_load_byte,
@@ -642,7 +673,7 @@ il_handlers = {
     0x1B: il_load_bswap,
     0x1C: il_store_bswap,
     0x1D: il_shl,
-    # 0x1E: il_aes,
+    0x1E: il_aes,
     0xFE: il_ret,
     0xFF: il_finish,
 }

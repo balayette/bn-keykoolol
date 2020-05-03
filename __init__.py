@@ -1,8 +1,10 @@
 from binaryninja.architecture import Architecture
-from binaryninja.function import RegisterInfo
+from binaryninja.function import RegisterInfo, IntrinsicInfo, IntrinsicInput
 from binaryninja.callingconvention import CallingConvention
+from binaryninja.types import Type
 
 from .disas import *
+
 
 class Keykoo(Architecture):
     name = "Keykoo"
@@ -18,6 +20,16 @@ class Keykoo(Architecture):
     regs["sp"] = RegisterInfo("sp", 4)
 
     stack_pointer = "sp"
+
+    aes_intr = IntrinsicInfo(
+        [
+            IntrinsicInput(Type.float(16), "key"),
+            IntrinsicInput(Type.float(16), "val"),
+        ],
+        [Type.float(16)],
+    )
+
+    intrinsics = {"__aes": aes_intr}
 
     def get_instruction_info(self, data, addr):
         return disas_info(data, addr)
@@ -38,6 +50,7 @@ class KeykooCC(CallingConvention):
     int_arg_regs = [f"r{i}" for i in range(3)]
     int_return_reg = "r0"
 
+
 Keykoo.register()
-arch = Architecture['Keykoo']
-arch.register_calling_convention(KeykooCC(arch, 'default'))
+arch = Architecture["Keykoo"]
+arch.register_calling_convention(KeykooCC(arch, "default"))
