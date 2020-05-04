@@ -1,7 +1,7 @@
 from binaryninja.function import InstructionInfo, InstructionTextToken
 from binaryninja.enums import InstructionTextTokenType, BranchType
 from binaryninja.architecture import Architecture
-from binaryninja.lowlevelil import LLIL_TEMP, ILIntrinsic
+from binaryninja.lowlevelil import LLIL_TEMP, ILIntrinsic, ILRegister
 from binaryninja.log import *
 
 
@@ -294,7 +294,7 @@ handlers = {
 
 def disas(data, addr):
     op = int.from_bytes(data, byteorder="little")
-    opc = (op >> 0x18) & 0xff
+    opc = (op >> 0x18) & 0xFF
     if opc not in handlers:
         return [tT("UNKNOWN INSTRUCTION")], 4
     h = handlers[opc]
@@ -630,21 +630,15 @@ def il_aes(bs, addr, il):
     dst = (bs >> 0x14) & 0xF  # mem16[r[dst]] = xmm0
 
     enct = LLIL_TEMP(0)
-    key = LLIL_TEMP(1)
-    val = LLIL_TEMP(2)
 
-    loadk = il.set_reg(16, key, il.load(16, il.reg(4, f"r{key_src}")))
-    loadv = il.set_reg(16, val, il.load(16, il.reg(4, f"r{val_src}")))
-
-    store = il.store(
-        16,
-        il.reg(4, f"r{dst}"),
-        il.intrinsic([il.reg(16, enct)], "__aes", [il.reg(16, key), il.reg(16, val)]),
+    compute = il.intrinsic(
+        [ILRegister(Architecture["Keykoo"], enct)],
+        "__aes",
+        [il.load(16, il.reg(4, f"r{key_src}")), il.load(16, il.reg(4, f"r{val_src}"))],
     )
+    il.append(compute)
 
-    il.append(loadk)
-    il.append(loadv)
-    return store
+    return il.store(16, il.reg(4, f"r{dst}"), il.reg(16, enct))
 
 
 il_handlers = {
